@@ -1,0 +1,75 @@
+name: Release as DV8 Solutions
+
+# Re-uploads an existing signed download as a draft release made by the
+# DV8 Solutions GitHub App, then removes the old draft. Run by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag, for example v1.0.2"
+        required: true
+      title:
+        description: "Release title, for example TuberView 1.0.2"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Look up the DV8 Solutions app
+        id: lookup
+        run: |
+          set -euo pipefail
+          ID="$(curl -fsS https://api.github.com/apps/dv8-solutions | jq -r .id)"
+          test -n "$ID" && test "$ID" != null
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Sign in as the DV8 Solutions app
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ steps.lookup.outputs.id }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+
+      - name: Fetch the signed download from the current draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          OLD_ID="$(gh api "repos/$REPO/releases" --jq ".[] | select(.draft and .name == \"$TITLE\") | .id" | head -1)"
+          test -n "$OLD_ID"
+          echo "OLD_ID=$OLD_ID" >> "$GITHUB_ENV"
+          gh api "repos/$REPO/releases/$OLD_ID" --jq .body > notes.md
+          ASSET="$(gh api "repos/$REPO/releases/$OLD_ID/assets" --jq '.[] | select(.name=="TuberView.zip") | .id')"
+          gh api -H "Accept: application/octet-stream" "repos/$REPO/releases/assets/$ASSET" > TuberView.zip
+          ls -l TuberView.zip
+          shasum -a 256 TuberView.zip
+
+      - name: Create the draft as DV8 Solutions
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" TuberView.zip -R "$REPO" --draft --target main \
+            --title "$TITLE" --notes-file notes.md
+          gh api "repos/$REPO/releases" --jq ".[] | select(.draft and .name == \"$TITLE\") | [.id, .author.login] | @tsv"
+
+      - name: Remove the old draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+          NEW="$(gh api "repos/$REPO/releases" --jq ".[] | select(.draft and .name == \"$TITLE\" and (.author.login | endswith(\"[bot]\"))) | .id" | head -1)"
+          test -n "$NEW"
+          gh api -X DELETE "repos/$REPO/releases/$OLD_ID"
+          gh api "repos/$REPO/releases" --jq '.[] | [.name, .author.login, .draft] | @tsv'

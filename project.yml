@@ -1,0 +1,54 @@
+name: TuberView
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "12.0"
+packages:
+  TuberCore:
+    path: Packages/TuberCore
+targets:
+  TuberView:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Sources
+      - path: App/Resources
+    dependencies:
+      - package: TuberCore
+      - framework: Vendor/VLCKit.xcframework
+        embed: true
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: TuberView
+        CFBundleDisplayName: TuberView
+        CFBundleIconFile: TuberView
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSApplicationCategoryType: public.app-category.entertainment
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+        NSHumanReadableCopyright: "© 2026 DV8 Solutions LLC"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dv8solutions.tuberview
+        PRODUCT_NAME: TuberView
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: "NO"
+        COMBINE_HIDPI_IMAGES: "YES"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+schemes:
+  TuberView:
+    build:
+      targets:
+        TuberView: all
+    run:
+      config: Release

@@ -1,0 +1,17 @@
+.DS_Store
+build/
+DerivedData/
+Vendor/
+*.xcodeproj
+.build/
+.swiftpm/
+xcuserdata/
+# Playlists and provider links never belong in this repository.
+*.m3u
+*.m3u8
+# written by xcodegen
+App/Info.plist
+build.log
+launch.log
+selftest.log
+selftest-err.log

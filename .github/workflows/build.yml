@@ -1,0 +1,137 @@
+name: Build TuberView
+
+# Mac build minutes are limited, so this never runs on an ordinary push.
+# It runs only when asked for by hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore VLCKit
+        uses: actions/cache@v4
+        with:
+          path: Vendor/VLCKit.xcframework
+          key: vlckit-3.6.0-c73b779f-dd8bfdba
+
+      - name: Fetch VLCKit
+        run: scripts/fetch-vlckit.sh
+
+      - name: Tests
+        run: swift test --package-path Packages/TuberCore
+
+      - name: Generate the Xcode project
+        run: |
+          which xcodegen || brew install xcodegen
+          xcodegen generate
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project TuberView.xcodeproj \
+            -scheme TuberView \
+            -configuration Release \
+            -derivedDataPath build \
+            ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="1.0.${{ github.run_number }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            build 2>&1 | tee build.log | grep -E "error|warning: unre|BUILD|\*\*" || true
+          test -d build/Build/Products/Release/TuberView.app || { tail -n 200 build.log; exit 1; }
+
+      - name: Check the app
+        run: |
+          APP=build/Build/Products/Release/TuberView.app
+          plutil -p "$APP/Contents/Info.plist"
+          lipo -archs "$APP/Contents/MacOS/TuberView"
+          ls "$APP/Contents/Frameworks"
+          test -d "$APP/Contents/Frameworks/VLCKit.framework"
+          test -f "$APP/Contents/Resources/TuberView.icns"
+          codesign --verify --deep --strict "$APP"
+          # The app must start and stay up. This catches a missing library or
+          # a crash on launch before anyone downloads it.
+          HOME="$RUNNER_TEMP/home" "$APP/Contents/MacOS/TuberView" > launch.log 2>&1 &
+          PID=$!
+          sleep 12
+          if kill -0 "$PID" 2>/dev/null; then
+            echo "TuberView started and stayed running."
+            kill "$PID" || true
+          else
+            echo "TuberView quit on launch:"
+            cat launch.log
+            exit 1
+          fi
+
+      # Pictures of every library page, drawn from made-up data, so the
+      # look can be reviewed before anyone is handed the build.
+      - name: Take pictures of the library
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          APP=build/Build/Products/Release/TuberView.app
+          mkdir -p shots
+          HOME="$RUNNER_TEMP/home" "$APP/Contents/MacOS/TuberView" --snapshot "$PWD/shots" --demo --screen 2>snapshot-err.log | tee snapshot.log || true
+          tail -n 20 snapshot-err.log || true
+          ls -l shots || true
+
+      - name: Play a test stream, then recover from a pretend sleep
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          APP=build/Build/Products/Release/TuberView.app
+          for URL in \
+            "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" \
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+          do
+            echo "Trying $URL"
+            if "$APP/Contents/MacOS/TuberView" --selftest "$URL" --shots "$PWD/shots" 2>selftest-err.log | tee selftest.log; then
+              if grep -q "PASS" selftest.log; then echo "Playback self test passed."; exit 0; fi
+            fi
+            tail -n 30 selftest-err.log || true
+          done
+          echo "::warning::The playback self test did not pass on this machine."
+          exit 1
+
+      - name: Package
+        run: |
+          ditto -c -k --keepParent build/Build/Products/Release/TuberView.app TuberView-app.zip
+          ls -lh TuberView-app.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TuberView-app
+          path: TuberView-app.zip
+          retention-days: 30
+
+      - name: Keep the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            build.log
+            launch.log
+            selftest.log
+            selftest-err.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Keep the pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pictures
+          path: shots/*.png
+          if-no-files-found: ignore
+          retention-days: 14

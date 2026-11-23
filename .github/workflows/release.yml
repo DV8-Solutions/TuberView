@@ -1,7 +1,7 @@
-name: Release as DV8 Solutions
+name: Release
 
-# Re-uploads an existing signed download as a draft release made by the
-# DV8 Solutions GitHub App, then removes the old draft. Run by hand.
+# Re-uploads an existing signed download as a draft release made by
+# GitHub's build runner, then removes the old draft. Run by hand.
 on:
   workflow_dispatch:
     inputs:
@@ -19,21 +19,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Look up the DV8 Solutions app
-        id: lookup
-        run: |
-          set -euo pipefail
-          ID="$(curl -fsS https://api.github.com/apps/dv8-solutions | jq -r .id)"
-          test -n "$ID" && test "$ID" != null
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
-
-      - name: Sign in as the DV8 Solutions app
-        id: app
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ steps.lookup.outputs.id }}
-          private-key: ${{ secrets.RELEASE_APP_KEY }}
-
       - name: Fetch the signed download from the current draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,9 +35,9 @@ jobs:
           ls -l TuberView.zip
           shasum -a 256 TuberView.zip
 
-      - name: Create the draft as DV8 Solutions
+      - name: Create the new draft from GitHub's build runner
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
           TITLE: ${{ inputs.title }}
